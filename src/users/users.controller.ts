@@ -1,7 +1,20 @@
 // src/users/users.controller.ts
-import { Controller, Post, Get, Put, Body, Param, UseGuards, Request, ParseIntPipe } from '@nestjs/common';
+import { Controller, Post, Get, Put, Body, Param, UseGuards, Request, ParseIntPipe, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname } from 'path';
 import { UsersService, UpdateProfileDto } from './users.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+
+// Multer configuration for avatar uploads
+const avatarStorage = diskStorage({
+  destination: './uploads/avatars',
+  filename: (req, file, callback) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = extname(file.originalname);
+    callback(null, `avatar-${uniqueSuffix}${ext}`);
+  },
+});
 
 @Controller('users')
 @UseGuards(JwtAuthGuard)
@@ -33,6 +46,42 @@ export class UsersController {
       success: true,
       message: 'Profile berhasil diupdate',
       data: user,
+    };
+  }
+
+  @Post('avatar')
+  @UseInterceptors(FileInterceptor('avatar', {
+    storage: avatarStorage,
+    fileFilter: (req, file, callback) => {
+      if (!file.originalname.match(/\.(jpg|jpeg|png|gif)$/)) {
+        return callback(new Error('Only image files are allowed!'), false);
+      }
+      callback(null, true);
+    },
+    limits: {
+      fileSize: 5 * 1024 * 1024, // 5MB limit
+    },
+  }))
+  async uploadAvatar(@Request() req, @UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      return {
+        success: false,
+        message: 'No file uploaded',
+      };
+    }
+
+    const avatarUrl = `/uploads/avatars/${file.filename}`;
+    
+    // Update user avatar in database
+    await this.usersService.updateProfile(req.user.id, { avatar: avatarUrl });
+
+    return {
+      success: true,
+      message: 'Avatar berhasil diupload',
+      data: {
+        avatarUrl,
+        filename: file.filename,
+      },
     };
   }
 

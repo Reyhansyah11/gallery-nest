@@ -1,5 +1,5 @@
 // src/auth/auth.service.ts
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
@@ -10,6 +10,8 @@ import { LoginDto } from './dto/login.dto';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
@@ -30,6 +32,7 @@ export class AuthService {
 
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 12);
+    this.logger.debug(`Password hashed for registration: ${email}`);
 
     // Create user
     const user = this.userRepository.create({
@@ -55,23 +58,37 @@ export class AuthService {
   }
 
   async login(loginDto: LoginDto): Promise<{ user: Omit<User, 'password'>; token: string }> {
-    const { usernameOrEmail, password } = loginDto;
+    const { email, password } = loginDto;
 
-    // Find user by email or username
+    this.logger.debug(`Login attempt for: ${email}`);
+
+    // Find user by email (atau username jika Anda ingin tetap support keduanya)
     const user = await this.userRepository.findOne({
-      where: [
-        { email: usernameOrEmail },
-        { username: usernameOrEmail },
-      ],
+      where: { email: email },
     });
 
-    if (!user || user.status !== 'active') {
+    if (!user) {
+      this.logger.warn(`User not found: ${email}`);
+      throw new UnauthorizedException('Kredensial tidak valid');
+    }
+
+    this.logger.debug(`User found - ID: ${user.id}, Role: ${user.role}, Status: ${user.status}`);
+
+    if (user.status !== 'active') {
+      this.logger.warn(`User not active: ${email}`);
       throw new UnauthorizedException('Kredensial tidak valid');
     }
 
     // Check password
+    this.logger.debug(`Comparing password for user: ${user.username}`);
+    this.logger.debug(`Stored hash starts with: ${user.password.substring(0, 10)}...`);
+    
     const isPasswordValid = await bcrypt.compare(password, user.password);
+    
+    this.logger.debug(`Password validation result: ${isPasswordValid}`);
+    
     if (!isPasswordValid) {
+      this.logger.warn(`Invalid password for user: ${email}`);
       throw new UnauthorizedException('Kredensial tidak valid');
     }
 
@@ -81,6 +98,8 @@ export class AuthService {
       email: user.email,
       role: user.role,
     });
+
+    this.logger.debug(`Login successful for user: ${user.username} with role: ${user.role}`);
 
     // Remove password from response using destructuring
     const { password: _, ...userWithoutPassword } = user;

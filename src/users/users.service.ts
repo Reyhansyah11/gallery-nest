@@ -8,7 +8,9 @@ import { Follow } from '../entities/follow.entity';
 
 export class UpdateProfileDto {
   fullName?: string;
+  username?: string;
   bio?: string;
+  avatar?: string;
   isPrivate?: boolean;
 }
 
@@ -54,6 +56,17 @@ export class UsersService {
     
     if (!user) {
       throw new NotFoundException('User tidak ditemukan');
+    }
+
+    // Check if username is unique (if being updated)
+    if (updateData.username && updateData.username !== user.username) {
+      const existingUser = await this.userRepository.findOne({ 
+        where: { username: updateData.username } 
+      });
+      
+      if (existingUser) {
+        throw new ForbiddenException('Username sudah digunakan');
+      }
     }
 
     Object.assign(user, updateData);
